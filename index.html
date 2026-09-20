@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PE - Planejamento Empresarial</title>
+<style>
+:root{--bg:#f3f3f3;--card:#fff;--ink:#262626;--muted:#666;--accent:#b5121b;--accent-dark:#8f0e15;--border:#dedede;--ok:#2e7d32}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}header{background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:white;padding:34px 20px;border-bottom:6px solid #6d6e71}.wrap{max-width:1080px;margin:auto}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}.institution{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:9px;opacity:.92}.tabs{display:flex;gap:10px;margin:24px 0;flex-wrap:wrap}.tab{border:1px solid #cfcfcf;background:#fff;padding:10px 14px;border-radius:8px;cursor:pointer;font-weight:700}.tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}.section{display:none}.section.active{display:block}.grid{display:grid;gap:14px}.card{background:#fff;border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:10px;padding:18px;box-shadow:0 5px 16px rgba(0,0,0,.05)}.meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:14px}.tag{background:#f2f2f2;border:1px solid #e2e2e2;border-radius:999px;padding:5px 9px}.btn{display:inline-block;margin-top:12px;background:var(--accent);color:white;text-decoration:none;border:0;border-radius:7px;padding:10px 14px;font-weight:700}.btn:hover{background:var(--accent-dark)}.empty{padding:34px;text-align:center;color:var(--muted);background:#fff;border:1px dashed #cfcfcf;border-radius:10px}.status{font-size:13px;font-weight:700}.pub{color:var(--ok)}main{padding:0 20px 40px}h1{margin:0}header p{margin-bottom:0;opacity:.95}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="top"><div><div class="institution">Centro Paula Souza • Etec de Mairinque</div><h1>PE – Planejamento Empresarial</h1><p>1º MTEC – Administração</p></div></div></div></header>
+<main class="wrap">
+<div class="tabs"><button class="tab active" data-tab="atividades">Atividades do semestre</button><button class="tab" data-tab="materiais">Material de apoio</button></div>
+<section id="atividades" class="section active"><div id="listaAtividades" class="grid"><div class="empty">Carregando atividades...</div></div></section>
+<section id="materiais" class="section"><div id="listaMateriais" class="grid"><div class="empty">Carregando materiais...</div></div></section>
+</main>
+<script src="config.js?v=20260920-01"></script>
+<script>
+const cfg=window.PORTAL_CONFIG||{};
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.section').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active')});
+function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function cardAtividade(a){const prazo=a.prazo?new Date(a.prazo+'T12:00:00').toLocaleDateString('pt-BR'):'Sem prazo';return `<article class="card"><div class="meta"><span class="tag">${esc(a.tipoEnvio||'Sem envio')}</span><span class="tag">Prazo: ${esc(prazo)}</span></div><h2>${esc(a.titulo)}</h2><p>${esc(a.descricao||'')}</p><span class="status pub">PUBLICADA</span><br><a class="btn" href="atividade/?id=${encodeURIComponent(a.id)}">Abrir atividade</a></article>`}
+function cardMaterial(m){return `<article class="card"><h2>${esc(m.titulo)}</h2><p>${esc(m.descricao||'')}</p>${m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Abrir material</a>`:''}</article>`}
+function status_(v){return String(v||'').trim().toUpperCase()}
+async function carregar(){
+ const atividades=document.getElementById('listaAtividades');
+ const materiais=document.getElementById('listaMateriais');
+ if(!cfg.apiUrl){
+   atividades.innerHTML='<div class="empty"><strong>Plataforma preparada.</strong><br>As atividades aparecerão aqui assim que o sistema de PE for ativado.</div>';
+   materiais.innerHTML='<div class="empty"><strong>Área de materiais preparada.</strong><br>Os materiais aparecerão aqui depois de cadastrados pelo professor.</div>';
+   return;
+ }
+ try{
+   const u=new URL(cfg.apiUrl);
+   u.searchParams.set('action','listar');
+   u.searchParams.set('turma',cfg.turma||'1º MTEC - Administração - Mairinque');
+   u.searchParams.set('componente',cfg.componente||'PE');
+   u.searchParams.set('_ts',Date.now());
+   const r=await fetch(u.toString(),{cache:'no-store'});
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   const d=await r.json();
+   if(d.ok===false)throw new Error(d.erro||'Erro no servidor');
+   const ats=(d.atividades||[]).filter(x=>status_(x.status)==='PUBLICADA');
+   const mats=(d.materiais||[]).filter(x=>status_(x.status)==='PUBLICADO');
+   atividades.innerHTML=ats.length?ats.map(cardAtividade).join(''):'<div class="empty">Nenhuma atividade publicada ainda.</div>';
+   materiais.innerHTML=mats.length?mats.map(cardMaterial).join(''):'<div class="empty">Nenhum material publicado ainda.</div>';
+ }catch(e){
+   console.error('Erro ao carregar PE:',e);
+   atividades.innerHTML='<div class="empty">Não foi possível carregar as atividades. Atualize a página.</div>';
+   materiais.innerHTML='<div class="empty">Não foi possível carregar os materiais. Atualize a página.</div>';
+ }
+}
+carregar();
+</script>
+</body></html>
