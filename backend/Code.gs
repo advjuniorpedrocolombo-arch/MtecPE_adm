@@ -1,5 +1,6 @@
 const SHEET_ID='1QpyTzbc2P0F-LrGw7fIe7m0MOE10rbVSFAyCiWrgCNI';
 const ABAS={ATIVIDADES:'ATIVIDADES',ENTREGAS:'ENTREGAS',CORRECOES:'CORRECOES',MATERIAIS:'MATERIAIS',CONFIG:'CONFIG'};
+const TZ='America/Sao_Paulo';
 
 function doGet(e){
   const action=String((e&&e.parameter&&e.parameter.action)||'listar').trim();
@@ -7,10 +8,10 @@ function doGet(e){
     if(action==='listar') return json_(listar_(e.parameter.turma,e.parameter.componente));
     if(action==='atividade'){
       const atividade=atividade_(e.parameter.id);
-      if(atividade&&!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataBr_(atividade.liberacao)+'.');
+      if(atividade&&!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataHoraBr_(atividade.liberacao)+'.');
       return json_({ok:true,atividade:atividade});
     }
-    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.2-liberacao',agora:new Date().toISOString()});
+    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.3-data-hora',agora:agoraLocal_()});
     return json_({ok:false,erro:'Ação inválida'});
   }catch(err){return json_({ok:false,erro:String(err.message||err)})}
 }
@@ -29,8 +30,11 @@ function ss_(){return SpreadsheetApp.openById(SHEET_ID)}
 function sh_(nome){const sh=ss_().getSheetByName(nome);if(!sh)throw new Error('Aba não encontrada: '+nome);return sh}
 function json_(obj){return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON)}
 function ensureHeader_(sh,nome){const lastCol=Math.max(1,sh.getLastColumn());const h=sh.getRange(1,1,1,lastCol).getValues()[0].map(String);if(!h.includes(nome))sh.getRange(1,lastCol+1).setValue(nome)}
-function liberada_(a){if(!a||!a.liberacao)return true;return new Date()>=new Date(a.liberacao+'T00:00:00')}
-function dataBr_(v){if(!v)return'';const p=String(v).slice(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:String(v)}
+function agoraLocal_(){return Utilities.formatDate(new Date(),TZ,"yyyy-MM-dd'T'HH:mm")}
+function liberada_(a){return !a||!a.liberacao||agoraLocal_()>=normalizaDataHora_(a.liberacao,'00:00')}
+function encerrada_(a){return !!(a&&a.prazo&&agoraLocal_()>normalizaDataHora_(a.prazo,'23:59'))}
+function normalizaDataHora_(v,horaPadrao){if(!v)return'';if(Object.prototype.toString.call(v)==='[object Date]')return Utilities.formatDate(v,TZ,"yyyy-MM-dd'T'HH:mm");let s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}$/.test(s))s+='T'+horaPadrao;return s.slice(0,16)}
+function dataHoraBr_(v){if(!v)return'';const s=normalizaDataHora_(v,'00:00'),m=s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} às ${m[4]}:${m[5]}`:String(v)}
 
 function listar_(turma,componente){
   const atividades=rows_(ABAS.ATIVIDADES)
@@ -56,7 +60,7 @@ function mapAtividade_(a){
   return {
     id:a.ID_ATIVIDADE,turma:a.TURMA,componente:a.COMPONENTE,titulo:a.TITULO,descricao:a.DESCRICAO,
     orientacoes:a.ORIENTACOES||'',tipoEnvio:a.TIPO_ENVIO||'SEM_ENVIO',extensoes:a.EXTENSOES||'',
-    maxArquivos:Number(a.MAX_ARQUIVOS||0),liberacao:date_(a.LIBERACAO),prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL||'',
+    maxArquivos:Number(a.MAX_ARQUIVOS||0),liberacao:normalizaDataHora_(a.LIBERACAO,'00:00'),prazo:normalizaDataHora_(a.PRAZO,'23:59'),materialUrl:a.MATERIAL_APOIO_URL||'',
     correcaoIA:a.CORRECAO_IA||'NAO',criterios:a.GABARITO_CRITERIOS||'',status:a.STATUS||'RASCUNHO',
     ordem:Number(a.ORDEM||999),tipoParticipacao:tipoParticipacao,
     maxAlunosGrupo:tipoParticipacao==='GRUPO'?Math.max(1,Number(a.MAX_ALUNOS_GRUPO||2)):1
@@ -65,6 +69,9 @@ function mapAtividade_(a){
 
 function salvarAtividade_(d){
   if(!d.id||!d.titulo)throw new Error('ID e título são obrigatórios');
+  const liberacao=normalizaDataHora_(d.liberacao,'00:00');
+  const prazo=normalizaDataHora_(d.prazo,'23:59');
+  if(liberacao&&prazo&&liberacao>prazo)throw new Error('A liberação não pode ser posterior à finalização');
   const sh=sh_(ABAS.ATIVIDADES);
   ensureHeader_(sh,'LIBERACAO');
   const dados=sheetData_(sh),now=new Date();
@@ -73,7 +80,7 @@ function salvarAtividade_(d){
   const obj={
     ID_ATIVIDADE:String(d.id).trim(),TURMA:d.turma||'1º MTEC - Administração - Mairinque',COMPONENTE:d.componente||'PE',
     TITULO:d.titulo||'',DESCRICAO:d.descricao||'',TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',
-    EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),LIBERACAO:d.liberacao||'',PRAZO:d.prazo||'',
+    EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),LIBERACAO:liberacao,PRAZO:prazo,
     MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',GABARITO_CRITERIOS:d.criterios||'',
     STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),CRIADO_EM:atual&&atual.CRIADO_EM?atual.CRIADO_EM:now,
     ATUALIZADO_EM:now,ORIENTACOES:d.orientacoes||'',TIPO_PARTICIPACAO:tipoParticipacao,
@@ -97,8 +104,8 @@ function enviarAtividade_(d){
   const atividade=atividade_(d.idAtividade);
   if(!atividade)throw new Error('Atividade não encontrada');
   if(atividade.status!=='PUBLICADA')throw new Error('Atividade não está aberta para envio');
-  if(!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataBr_(atividade.liberacao)+'.');
-  if(atividade.prazo){const fim=new Date(atividade.prazo+'T23:59:59');if(new Date()>fim)throw new Error('Prazo de entrega encerrado')}
+  if(!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataHoraBr_(atividade.liberacao)+'.');
+  if(encerrada_(atividade))throw new Error('Prazo de entrega encerrado em '+dataHoraBr_(atividade.prazo)+'.');
 
   const emGrupo=atividade.tipoParticipacao==='GRUPO';
   let integrantes=Array.isArray(d.integrantes)?d.integrantes:[];
@@ -160,7 +167,7 @@ function rows_(nome){return sheetData_(sh_(nome)).rows}
 function appendByHeaders_(sh,headers,obj){sh.appendRow(headers.map(h=>obj[h]!==undefined?obj[h]:''))}
 function upsert_(sh,dados,chave,valor,obj){const found=dados.rows.find(r=>eq_(r[chave],valor));const row=dados.headers.map(h=>obj[h]!==undefined?obj[h]:(found?found[h]:''));if(found)sh.getRange(found.__row,1,1,row.length).setValues([row]);else sh.appendRow(row)}
 function eq_(a,b){return String(a??'').trim()===String(b??'').trim()}
-function date_(v){if(!v)return'';if(Object.prototype.toString.call(v)==='[object Date]')return Utilities.formatDate(v,Session.getScriptTimeZone(),'yyyy-MM-dd');return String(v).slice(0,10)}
+function date_(v){if(!v)return'';if(Object.prototype.toString.call(v)==='[object Date]')return Utilities.formatDate(v,TZ,'yyyy-MM-dd');return String(v).slice(0,10)}
 
 function autorizarDrive(){
   const cfg=config_();
