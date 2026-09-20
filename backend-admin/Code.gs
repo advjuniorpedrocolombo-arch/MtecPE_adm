@@ -17,9 +17,10 @@ function dateTime_(v){if(!v)return'';if(Object.prototype.toString.call(v)==='[ob
 function listarAtividades(){
   return rows_('ATIVIDADES').filter(x=>x.TURMA===TURMA&&x.COMPONENTE===COMPONENTE).map(a=>({
     id:a.ID_ATIVIDADE,titulo:a.TITULO,descricao:a.DESCRICAO,orientacoes:a.ORIENTACOES||'',tipoEnvio:a.TIPO_ENVIO,
-    extensoes:a.EXTENSOES,maxArquivos:a.MAX_ARQUIVOS,prazo:date_(a.PRAZO),
-    materialUrl:a.MATERIAL_APOIO_URL,correcaoIA:a.CORRECAO_IA,criterios:a.GABARITO_CRITERIOS,
-    status:a.STATUS,ordem:a.ORDEM
+    extensoes:a.EXTENSOES,maxArquivos:a.MAX_ARQUIVOS,prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL,
+    correcaoIA:a.CORRECAO_IA,criterios:a.GABARITO_CRITERIOS,status:a.STATUS,ordem:a.ORDEM,
+    tipoParticipacao:String(a.TIPO_PARTICIPACAO||'INDIVIDUAL').toUpperCase()==='GRUPO'?'GRUPO':'INDIVIDUAL',
+    maxAlunosGrupo:Math.max(1,Number(a.MAX_ALUNOS_GRUPO||1))
   })).sort((a,b)=>(Number(a.ordem)||999)-(Number(b.ordem)||999));
 }
 
@@ -27,12 +28,13 @@ function salvarAtividade(d){
   if(!d||!d.id||!d.titulo)throw new Error('ID e título são obrigatórios');
   const sh=sh_('ATIVIDADES'),v=sh.getDataRange().getValues(),h=v[0],idx=h.indexOf('ID_ATIVIDADE');
   const now=new Date();
+  const tipoParticipacao=String(d.tipoParticipacao||'INDIVIDUAL').toUpperCase()==='GRUPO'?'GRUPO':'INDIVIDUAL';
   const map={
     ID_ATIVIDADE:d.id,TURMA:TURMA,COMPONENTE:COMPONENTE,TITULO:d.titulo,DESCRICAO:d.descricao||'',ORIENTACOES:d.orientacoes||'',
-    TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',EXTENSOES:d.extensoes||'',MAX_ARQUIVOS:Number(d.maxArquivos||0),
-    PRAZO:d.prazo||'',MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',
-    GABARITO_CRITERIOS:d.criterios||'',STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),
-    CRIADO_EM:now,ATUALIZADO_EM:now
+    TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',EXTENSOES:d.extensoes||'',MAX_ARQUIVOS:Number(d.maxArquivos||0),PRAZO:d.prazo||'',
+    MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',GABARITO_CRITERIOS:d.criterios||'',
+    STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),CRIADO_EM:now,ATUALIZADO_EM:now,
+    TIPO_PARTICIPACAO:tipoParticipacao,MAX_ALUNOS_GRUPO:tipoParticipacao==='GRUPO'?Math.max(1,Number(d.maxAlunosGrupo||2)):1
   };
   let found=0;
   for(let i=1;i<v.length;i++)if(String(v[i][idx])===String(d.id)){found=i+1;break}
@@ -112,7 +114,11 @@ function excluirMaterial(id){
 function listarEntregas(idAtividade){
   return rows_('ENTREGAS')
     .filter(x=>!idAtividade||String(x.ID_ATIVIDADE)===String(idAtividade))
-    .map(e=>({id:String(e.ID_ENTREGA||''),idAtividade:String(e.ID_ATIVIDADE||''),aluno:String(e.ALUNO||''),email:String(e.EMAIL||''),arquivos:String(e.ARQUIVOS_URL||''),resposta:String(e.RESPOSTA_TEXTO||''),dataEnvio:dateTime_(e.DATA_ENVIO),status:String(e.STATUS||''),tentativa:Number(e.TENTATIVA||1),observacao:String(e.OBSERVACAO||'')}));
+    .map(e=>({
+      id:String(e.ID_ENTREGA||''),idAtividade:String(e.ID_ATIVIDADE||''),aluno:String(e.ALUNO||''),email:String(e.EMAIL||''),
+      arquivos:String(e.ARQUIVOS_URL||''),resposta:String(e.RESPOSTA_TEXTO||''),dataEnvio:dateTime_(e.DATA_ENVIO),
+      status:String(e.STATUS||''),tentativa:Number(e.TENTATIVA||1),observacao:String(e.OBSERVACAO||''),idGrupo:String(e.ID_GRUPO||'')
+    }));
 }
 
 function listarCorrecoes(idAtividade){
