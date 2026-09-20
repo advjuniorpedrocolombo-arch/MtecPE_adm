@@ -19,7 +19,8 @@
 const cfg=window.PORTAL_CONFIG||{};
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.section').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active')});
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-function cardAtividade(a){const prazo=a.prazo?new Date(a.prazo+'T12:00:00').toLocaleDateString('pt-BR'):'Sem prazo';return `<article class="card"><div class="meta"><span class="tag">${esc(a.tipoEnvio||'Sem envio')}</span><span class="tag">Prazo: ${esc(prazo)}</span></div><h2>${esc(a.titulo)}</h2><p>${esc(a.descricao||'')}</p><span class="status pub">PUBLICADA</span><br><a class="btn" href="atividade/?id=${encodeURIComponent(a.id)}">Abrir atividade</a></article>`}
+function dataHoraBR(v){if(!v)return'Sem prazo';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} às ${m[4]}:${m[5]}`:String(v)}
+function cardAtividade(a){const prazo=a.prazo?dataHoraBR(a.prazo):'Sem prazo';return `<article class="card"><div class="meta"><span class="tag">${esc(a.tipoEnvio||'Sem envio')}</span><span class="tag">Prazo: ${esc(prazo)}</span></div><h2>${esc(a.titulo)}</h2><p>${esc(a.descricao||'')}</p><span class="status pub">PUBLICADA</span><br><a class="btn" href="atividade/?id=${encodeURIComponent(a.id)}">Abrir atividade</a></article>`}
 function cardMaterial(m){return `<article class="card"><h2>${esc(m.titulo)}</h2><p>${esc(m.descricao||'')}</p>${m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Abrir material</a>`:''}</article>`}
 function status_(v){return String(v||'').trim().toUpperCase()}
 async function carregar(){
