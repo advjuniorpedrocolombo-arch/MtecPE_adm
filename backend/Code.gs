@@ -5,8 +5,12 @@ function doGet(e){
   const action=String((e&&e.parameter&&e.parameter.action)||'listar').trim();
   try{
     if(action==='listar') return json_(listar_(e.parameter.turma,e.parameter.componente));
-    if(action==='atividade') return json_({ok:true,atividade:atividade_(e.parameter.id)});
-    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.1-grupos',agora:new Date().toISOString()});
+    if(action==='atividade'){
+      const atividade=atividade_(e.parameter.id);
+      if(atividade&&!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataBr_(atividade.liberacao)+'.');
+      return json_({ok:true,atividade:atividade});
+    }
+    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.2-liberacao',agora:new Date().toISOString()});
     return json_({ok:false,erro:'Ação inválida'});
   }catch(err){return json_({ok:false,erro:String(err.message||err)})}
 }
@@ -24,12 +28,16 @@ function doPost(e){
 function ss_(){return SpreadsheetApp.openById(SHEET_ID)}
 function sh_(nome){const sh=ss_().getSheetByName(nome);if(!sh)throw new Error('Aba não encontrada: '+nome);return sh}
 function json_(obj){return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON)}
+function ensureHeader_(sh,nome){const lastCol=Math.max(1,sh.getLastColumn());const h=sh.getRange(1,1,1,lastCol).getValues()[0].map(String);if(!h.includes(nome))sh.getRange(1,lastCol+1).setValue(nome)}
+function liberada_(a){if(!a||!a.liberacao)return true;return new Date()>=new Date(a.liberacao+'T00:00:00')}
+function dataBr_(v){if(!v)return'';const p=String(v).slice(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:String(v)}
 
 function listar_(turma,componente){
   const atividades=rows_(ABAS.ATIVIDADES)
     .filter(x=>(!turma||eq_(x.TURMA,turma))&&(!componente||eq_(x.COMPONENTE,componente)))
     .sort((a,b)=>Number(a.ORDEM||999)-Number(b.ORDEM||999))
-    .map(mapAtividade_);
+    .map(mapAtividade_)
+    .filter(liberada_);
   const materiais=rows_(ABAS.MATERIAIS)
     .filter(x=>(!componente||eq_(x.COMPONENTE,componente)))
     .sort((a,b)=>Number(a.ORDEM||999)-Number(b.ORDEM||999))
@@ -48,7 +56,7 @@ function mapAtividade_(a){
   return {
     id:a.ID_ATIVIDADE,turma:a.TURMA,componente:a.COMPONENTE,titulo:a.TITULO,descricao:a.DESCRICAO,
     orientacoes:a.ORIENTACOES||'',tipoEnvio:a.TIPO_ENVIO||'SEM_ENVIO',extensoes:a.EXTENSOES||'',
-    maxArquivos:Number(a.MAX_ARQUIVOS||0),prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL||'',
+    maxArquivos:Number(a.MAX_ARQUIVOS||0),liberacao:date_(a.LIBERACAO),prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL||'',
     correcaoIA:a.CORRECAO_IA||'NAO',criterios:a.GABARITO_CRITERIOS||'',status:a.STATUS||'RASCUNHO',
     ordem:Number(a.ORDEM||999),tipoParticipacao:tipoParticipacao,
     maxAlunosGrupo:tipoParticipacao==='GRUPO'?Math.max(1,Number(a.MAX_ALUNOS_GRUPO||2)):1
@@ -57,13 +65,15 @@ function mapAtividade_(a){
 
 function salvarAtividade_(d){
   if(!d.id||!d.titulo)throw new Error('ID e título são obrigatórios');
-  const sh=sh_(ABAS.ATIVIDADES),dados=sheetData_(sh),now=new Date();
+  const sh=sh_(ABAS.ATIVIDADES);
+  ensureHeader_(sh,'LIBERACAO');
+  const dados=sheetData_(sh),now=new Date();
   const atual=dados.rows.find(x=>eq_(x.ID_ATIVIDADE,d.id));
   const tipoParticipacao=String(d.tipoParticipacao||'INDIVIDUAL').toUpperCase()==='GRUPO'?'GRUPO':'INDIVIDUAL';
   const obj={
     ID_ATIVIDADE:String(d.id).trim(),TURMA:d.turma||'1º MTEC - Administração - Mairinque',COMPONENTE:d.componente||'PE',
     TITULO:d.titulo||'',DESCRICAO:d.descricao||'',TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',
-    EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),PRAZO:d.prazo||'',
+    EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),LIBERACAO:d.liberacao||'',PRAZO:d.prazo||'',
     MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',GABARITO_CRITERIOS:d.criterios||'',
     STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),CRIADO_EM:atual&&atual.CRIADO_EM?atual.CRIADO_EM:now,
     ATUALIZADO_EM:now,ORIENTACOES:d.orientacoes||'',TIPO_PARTICIPACAO:tipoParticipacao,
@@ -87,6 +97,7 @@ function enviarAtividade_(d){
   const atividade=atividade_(d.idAtividade);
   if(!atividade)throw new Error('Atividade não encontrada');
   if(atividade.status!=='PUBLICADA')throw new Error('Atividade não está aberta para envio');
+  if(!liberada_(atividade))throw new Error('Atividade ainda não liberada. Liberação em '+dataBr_(atividade.liberacao)+'.');
   if(atividade.prazo){const fim=new Date(atividade.prazo+'T23:59:59');if(new Date()>fim)throw new Error('Prazo de entrega encerrado')}
 
   const emGrupo=atividade.tipoParticipacao==='GRUPO';
