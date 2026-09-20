@@ -6,7 +6,7 @@ function doGet(e){
   try{
     if(action==='listar') return json_(listar_(e.parameter.turma,e.parameter.componente));
     if(action==='atividade') return json_({ok:true,atividade:atividade_(e.parameter.id)});
-    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.0',agora:new Date().toISOString()});
+    if(action==='ping') return json_({ok:true,sistema:'PE',versao:'1.1-grupos',agora:new Date().toISOString()});
     return json_({ok:false,erro:'Ação inválida'});
   }catch(err){return json_({ok:false,erro:String(err.message||err)})}
 }
@@ -44,14 +44,31 @@ function atividade_(id){
 }
 
 function mapAtividade_(a){
-  return {id:a.ID_ATIVIDADE,turma:a.TURMA,componente:a.COMPONENTE,titulo:a.TITULO,descricao:a.DESCRICAO,orientacoes:a.ORIENTACOES||'',tipoEnvio:a.TIPO_ENVIO||'SEM_ENVIO',extensoes:a.EXTENSOES||'',maxArquivos:Number(a.MAX_ARQUIVOS||0),prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL||'',correcaoIA:a.CORRECAO_IA||'NAO',criterios:a.GABARITO_CRITERIOS||'',status:a.STATUS||'RASCUNHO',ordem:Number(a.ORDEM||999)};
+  const tipoParticipacao=String(a.TIPO_PARTICIPACAO||'INDIVIDUAL').toUpperCase()==='GRUPO'?'GRUPO':'INDIVIDUAL';
+  return {
+    id:a.ID_ATIVIDADE,turma:a.TURMA,componente:a.COMPONENTE,titulo:a.TITULO,descricao:a.DESCRICAO,
+    orientacoes:a.ORIENTACOES||'',tipoEnvio:a.TIPO_ENVIO||'SEM_ENVIO',extensoes:a.EXTENSOES||'',
+    maxArquivos:Number(a.MAX_ARQUIVOS||0),prazo:date_(a.PRAZO),materialUrl:a.MATERIAL_APOIO_URL||'',
+    correcaoIA:a.CORRECAO_IA||'NAO',criterios:a.GABARITO_CRITERIOS||'',status:a.STATUS||'RASCUNHO',
+    ordem:Number(a.ORDEM||999),tipoParticipacao:tipoParticipacao,
+    maxAlunosGrupo:tipoParticipacao==='GRUPO'?Math.max(1,Number(a.MAX_ALUNOS_GRUPO||2)):1
+  };
 }
 
 function salvarAtividade_(d){
   if(!d.id||!d.titulo)throw new Error('ID e título são obrigatórios');
   const sh=sh_(ABAS.ATIVIDADES),dados=sheetData_(sh),now=new Date();
   const atual=dados.rows.find(x=>eq_(x.ID_ATIVIDADE,d.id));
-  const obj={ID_ATIVIDADE:String(d.id).trim(),TURMA:d.turma||'1º MTEC - Administração - Mairinque',COMPONENTE:d.componente||'PE',TITULO:d.titulo||'',DESCRICAO:d.descricao||'',TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),PRAZO:d.prazo||'',MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',GABARITO_CRITERIOS:d.criterios||'',STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),CRIADO_EM:atual&&atual.CRIADO_EM?atual.CRIADO_EM:now,ATUALIZADO_EM:now,ORIENTACOES:d.orientacoes||''};
+  const tipoParticipacao=String(d.tipoParticipacao||'INDIVIDUAL').toUpperCase()==='GRUPO'?'GRUPO':'INDIVIDUAL';
+  const obj={
+    ID_ATIVIDADE:String(d.id).trim(),TURMA:d.turma||'1º MTEC - Administração - Mairinque',COMPONENTE:d.componente||'PE',
+    TITULO:d.titulo||'',DESCRICAO:d.descricao||'',TIPO_ENVIO:d.tipoEnvio||'SEM_ENVIO',
+    EXTENSOES:d.extensoes||extensoesPadrao_(d.tipoEnvio),MAX_ARQUIVOS:Number(d.maxArquivos||0),PRAZO:d.prazo||'',
+    MATERIAL_APOIO_URL:d.materialUrl||'',CORRECAO_IA:d.correcaoIA||'NAO',GABARITO_CRITERIOS:d.criterios||'',
+    STATUS:d.status||'RASCUNHO',ORDEM:Number(d.ordem||999),CRIADO_EM:atual&&atual.CRIADO_EM?atual.CRIADO_EM:now,
+    ATUALIZADO_EM:now,ORIENTACOES:d.orientacoes||'',TIPO_PARTICIPACAO:tipoParticipacao,
+    MAX_ALUNOS_GRUPO:tipoParticipacao==='GRUPO'?Math.max(1,Number(d.maxAlunosGrupo||2)):1
+  };
   upsert_(sh,dados,'ID_ATIVIDADE',obj.ID_ATIVIDADE,obj);
   return {ok:true,id:obj.ID_ATIVIDADE};
 }
@@ -67,11 +84,21 @@ function salvarMaterial_(d){
 
 function enviarAtividade_(d){
   if(!d.idAtividade)throw new Error('Atividade não informada');
-  if(!d.aluno)throw new Error('Nome do aluno é obrigatório');
   const atividade=atividade_(d.idAtividade);
   if(!atividade)throw new Error('Atividade não encontrada');
   if(atividade.status!=='PUBLICADA')throw new Error('Atividade não está aberta para envio');
-  if(atividade.prazo){const fim=new Date(atividade.prazo+'T23:59:59');if(new Date()>fim&&!d.aceitarAtraso)throw new Error('Prazo de entrega encerrado')}
+  if(atividade.prazo){const fim=new Date(atividade.prazo+'T23:59:59');if(new Date()>fim)throw new Error('Prazo de entrega encerrado')}
+
+  const emGrupo=atividade.tipoParticipacao==='GRUPO';
+  let integrantes=Array.isArray(d.integrantes)?d.integrantes:[];
+  integrantes=integrantes.map(x=>({nome:String((x&&x.nome)||'').trim(),email:String((x&&x.email)||'').trim()})).filter(x=>x.nome);
+  if(!integrantes.length&&String(d.aluno||'').trim())integrantes=[{nome:String(d.aluno).trim(),email:String(d.email||'').trim()}];
+  if(!integrantes.length)throw new Error('Informe ao menos um aluno');
+  if(!emGrupo)integrantes=[integrantes[0]];
+  if(emGrupo&&integrantes.length>atividade.maxAlunosGrupo)throw new Error('Este trabalho permite no máximo '+atividade.maxAlunosGrupo+' aluno(s) por grupo');
+  const nomesUnicos=new Set(integrantes.map(x=>x.nome.toLowerCase()));
+  if(nomesUnicos.size!==integrantes.length)throw new Error('Há nomes de alunos repetidos no grupo');
+
   const arquivos=Array.isArray(d.arquivos)?d.arquivos:[];
   if(atividade.tipoEnvio!=='FORMULARIO'&&atividade.tipoEnvio!=='TEXTO'&&atividade.tipoEnvio!=='SEM_ENVIO'){
     if(!arquivos.length)throw new Error('Selecione ao menos um arquivo');
@@ -79,17 +106,36 @@ function enviarAtividade_(d){
   }
   if((atividade.tipoEnvio==='FORMULARIO'||atividade.tipoEnvio==='TEXTO')&&!String(d.respostaTexto||'').trim())throw new Error('Digite a resposta da atividade');
   validaArquivos_(arquivos,atividade.extensoes);
+
   const cfg=config_();
   if(!cfg.PASTA_ENTREGAS_ID)throw new Error('PASTA_ENTREGAS_ID não configurada');
   const raiz=DriveApp.getFolderById(cfg.PASTA_ENTREGAS_ID);
   const pastaAtividade=getOrCreateFolder_(raiz,sanitize_(atividade.id+' - '+atividade.titulo));
-  const pastaAluno=getOrCreateFolder_(pastaAtividade,sanitize_(d.aluno));
+  const idGrupo=emGrupo?'GRP-'+Utilities.getUuid().slice(0,10).toUpperCase():'';
+  const nomePasta=emGrupo?(idGrupo+' - '+integrantes.map(x=>x.nome).join(', ')):integrantes[0].nome;
+  const pastaEntrega=getOrCreateFolder_(pastaAtividade,sanitize_(nomePasta));
+
   const urls=[];
-  arquivos.forEach((f,i)=>{const raw=String(f.data||'').replace(/^data:[^;]+;base64,/,'');const bytes=Utilities.base64Decode(raw);const nome=sanitizeFile_(f.name||('arquivo-'+(i+1)));const blob=Utilities.newBlob(bytes,f.mime||MimeType.PLAIN_TEXT,nome);urls.push(pastaAluno.createFile(blob).getUrl())});
-  const sh=sh_(ABAS.ENTREGAS),dados=sheetData_(sh);const id='ENT-'+Utilities.getUuid().slice(0,12).toUpperCase();
-  const obj={ID_ENTREGA:id,ID_ATIVIDADE:atividade.id,ALUNO:d.aluno,EMAIL:d.email||'',TURMA:atividade.turma||d.turma||'',ARQUIVOS_URL:urls.join('\n'),RESPOSTA_TEXTO:d.respostaTexto||'',DATA_ENVIO:new Date(),STATUS:'RECEBIDA',TENTATIVA:Number(d.tentativa||1),OBSERVACAO:d.observacao||''};
-  appendByHeaders_(sh,dados.headers,obj);
-  return {ok:true,idEntrega:id,arquivos:urls.length};
+  arquivos.forEach((f,i)=>{
+    const raw=String(f.data||'').replace(/^data:[^;]+;base64/,'').replace(/^,/,'');
+    const bytes=Utilities.base64Decode(raw);
+    const nome=sanitizeFile_(f.name||('arquivo-'+(i+1)));
+    const blob=Utilities.newBlob(bytes,f.mime||MimeType.PLAIN_TEXT,nome);
+    urls.push(pastaEntrega.createFile(blob).getUrl());
+  });
+
+  const sh=sh_(ABAS.ENTREGAS),dados=sheetData_(sh);
+  const idEntrega='ENT-'+Utilities.getUuid().slice(0,12).toUpperCase();
+  const dataEnvio=new Date();
+  integrantes.forEach(integrante=>{
+    const obj={
+      ID_ENTREGA:idEntrega,ID_ATIVIDADE:atividade.id,ALUNO:integrante.nome,EMAIL:integrante.email,
+      TURMA:atividade.turma||d.turma||'',ARQUIVOS_URL:urls.join('\n'),RESPOSTA_TEXTO:d.respostaTexto||'',
+      DATA_ENVIO:dataEnvio,STATUS:'RECEBIDA',TENTATIVA:Number(d.tentativa||1),OBSERVACAO:d.observacao||'',ID_GRUPO:idGrupo
+    };
+    appendByHeaders_(sh,dados.headers,obj);
+  });
+  return {ok:true,idEntrega:idEntrega,idGrupo:idGrupo,integrantes:integrantes.length,arquivos:urls.length};
 }
 
 function validaArquivos_(arquivos,extensoes){const permitidas=String(extensoes||'').toLowerCase().split(',').map(x=>x.trim().replace(/^\./,'')).filter(Boolean);if(!permitidas.length)return;arquivos.forEach(f=>{const nome=String(f.name||'');const ext=nome.includes('.')?nome.split('.').pop().toLowerCase():'';if(!permitidas.includes(ext))throw new Error('Arquivo não permitido: '+nome)})}
@@ -104,3 +150,12 @@ function appendByHeaders_(sh,headers,obj){sh.appendRow(headers.map(h=>obj[h]!==u
 function upsert_(sh,dados,chave,valor,obj){const found=dados.rows.find(r=>eq_(r[chave],valor));const row=dados.headers.map(h=>obj[h]!==undefined?obj[h]:(found?found[h]:''));if(found)sh.getRange(found.__row,1,1,row.length).setValues([row]);else sh.appendRow(row)}
 function eq_(a,b){return String(a??'').trim()===String(b??'').trim()}
 function date_(v){if(!v)return'';if(Object.prototype.toString.call(v)==='[object Date]')return Utilities.formatDate(v,Session.getScriptTimeZone(),'yyyy-MM-dd');return String(v).slice(0,10)}
+
+function autorizarDrive(){
+  const cfg=config_();
+  if(!cfg.PASTA_ENTREGAS_ID)throw new Error('PASTA_ENTREGAS_ID não configurada');
+  const pasta=DriveApp.getFolderById(cfg.PASTA_ENTREGAS_ID);
+  const teste=pasta.createFolder('TESTE_AUTORIZACAO_PE');
+  teste.setTrashed(true);
+  return 'OK';
+}
